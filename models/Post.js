@@ -8,7 +8,8 @@ const PostSchema = new mongoose.Schema({
   comments: [{
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     comment: { type: String },
-    timestamp: { type: Date, default: Date.now }
+    timestamp: { type: Date, default: Date.now },
+    likes: { type: Number, default: 0 },
   }],
   likes: { type: Number, default: 0 },
   status: { type: String, enum: ['In Progress', 'Completed', 'Overdue'], default: 'In Progress' },
