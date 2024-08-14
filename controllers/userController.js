@@ -1,6 +1,10 @@
 const User = require('../models/User');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
+const nodemailer = require('nodemailer');
+
+
 
 exports.register = async (req, res) => {
     const { username, email, password } = req.body;
@@ -115,3 +119,77 @@ exports.updateUser = async (req, res) => {
 exports.deleteUser = async (req, res) => {
   // Delete user logic
 };
+
+
+exports.requestPasswordReset = async (req, res) => {
+    const { email } = req.body;
+  
+    try {
+      const user = await User.findOne({ email });
+      if (!user) {
+        return res.status(400).json({ message: 'User not found' });
+      }
+  
+      const resetToken = crypto.randomBytes(20).toString('hex');
+      const resetTokenExpiry = Date.now() + 3600000; // 1 hour
+  
+      user.resetPasswordToken = resetToken;
+      user.resetPasswordExpiry = resetTokenExpiry;
+      await user.save();
+  
+      const transporter = nodemailer.createTransport({
+        service: 'Gmail',
+        auth: {
+          user: process.env.EMAIL,
+          pass: process.env.EMAIL_PASSWORD
+        }
+      });
+  
+      const mailOptions = {
+        to: user.email,
+        from: process.env.EMAIL,
+        subject: 'Password Reset',
+        text: `You are receiving this because you (or someone else) have requested the reset of the password for your account.\n\n
+               Please click on the following link, or paste this into your browser to complete the process:\n\n
+               http://${req.headers.host}/reset/${resetToken}\n\n
+               If you did not request this, please ignore this email and your password will remain unchanged.\n`
+      };
+  
+      transporter.sendMail(mailOptions, (err, info) => {
+        if (err) {
+          console.error('Error sending email:', err);
+          return res.status(500).json({ message: 'Error sending email' });
+        }
+        res.status(200).json({ message: 'Password reset email sent' });
+      });
+    } catch (err) {
+      console.error(err.message);
+      res.status(500).send('Server Error');
+    }
+  };
+  
+  exports.resetPassword = async (req, res) => {
+    const { token, newPassword } = req.body;
+  
+    try {
+      const user = await User.findOne({
+        resetPasswordToken: token,
+        resetPasswordExpiry: { $gt: Date.now() }
+      });
+  
+      if (!user) {
+        return res.status(400).json({ message: 'Invalid or expired token' });
+      }
+  
+      const salt = await bcrypt.genSalt(10);
+      user.password = await bcrypt.hash(newPassword, salt);
+      user.resetPasswordToken = undefined;
+      user.resetPasswordExpiry = undefined;
+      await user.save();
+  
+      res.status(200).json({ message: 'Password reset successful' });
+    } catch (err) {
+      console.error(err.message);
+      res.status(500).send('Server Error');
+    }
+  };
