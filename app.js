@@ -1,11 +1,15 @@
 const express = require('express');
 const bodyParser = require('body-parser');
-const userRoutes = require('./routes/userRoutes');
-const postRoutes = require('./routes/postRoutes');
-const auth = require('./middleware/auth');
-const connectDB = require('./db');
+const userRoutes = require('./src/routes/userRoutes');
+const postRoutes = require('./src/routes/postRoutes');
+const auth = require('./src/middleware/auth');
+const connectDB = require('./config/db');
+const cors = require('cors');
 
 const app = express();
+
+// Enable CORS for all routes
+app.use(cors());
 
 // Middleware
 app.use(bodyParser.json());
