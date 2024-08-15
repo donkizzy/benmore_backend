@@ -289,10 +289,17 @@ exports.followUser = async (req, res) => {
     userToFollow.followers.push(currentUser._id);
     await userToFollow.save();
 
-    res.status(200).json({ message: 'Successfully followed user' });
+    res.status(200).json({ message: 'Successfully followed user',
+      "user": {
+        id: userToFollow.id,
+        username: userToFollow.username,
+        email: userToFollow.email,
+        profile_picture: userToFollow.profile_picture,
+      }
+     });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: 'Server error' });
+    res.status(400).json({ message: 'Server error' });
   }
 };
 
@@ -321,9 +328,16 @@ exports.unfollowUser = async (req, res) => {
     );
     await userToUnfollow.save();
 
-    res.status(200).json({ message: 'Successfully unfollowed user' });
+    res.status(200).json({ message: 'Successfully unfollowed user',
+      "user": {
+        id: userToUnfollow.id,
+        username: userToUnfollow.username,
+        email: userToUnfollow.email,
+        profile_picture: userToUnfollow.profile_picture,
+      }
+     });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: 'Server error' });
+    res.status(400).json({ message: 'Server error' });
   }
 };
