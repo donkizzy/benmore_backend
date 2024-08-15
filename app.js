@@ -7,7 +7,6 @@ const auth = require('./src/middleware/auth');
 const connectDB = require('./config/db');
 
 
-
 const app = express();
 
 

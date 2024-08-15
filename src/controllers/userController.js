@@ -56,7 +56,10 @@ exports.register = async (req, res) => {
             "user":  {
               id: user.id,
               username: user.username,
-              email: user.email
+              email: user.email,
+              profile_picture: user.profile_picture,
+              followers: user.followers,
+              post: user.posts,
             },
             "token": token });
         }
@@ -65,7 +68,7 @@ exports.register = async (req, res) => {
       console.error(err.message);
       res.status(400).send({"message":'An error occurred'});
     }
-  };
+};
 
 
 exports.login = async (req, res) => {
@@ -83,11 +86,7 @@ exports.login = async (req, res) => {
     if (!user) {
       return res.status(400).json({ message: 'Incorrect Username Or Password' });
     }
- // Debugging statements
-  console.log('user', user);
- console.log('Password from request:', password);
- console.log('Password from database:', user.password);
-
+    
     // Check if password matches
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
@@ -112,7 +111,10 @@ exports.login = async (req, res) => {
           "user": {
             id: user.id,
             username: user.username,
-            email: user.email
+            email: user.email,
+            profile_picture: user.profile_picture,
+            followers: user.followers,
+            post: user.posts,
           },
           token: token 
         });
@@ -120,24 +122,37 @@ exports.login = async (req, res) => {
     );
   } catch (err) {
     console.error(err);
-    res.status(500).send('Server Error');
+    res.status(400).send({"message":'An error occurred'});
   }
 };
 
 exports.getUser = async (req, res) => {
     try {
-      const user = await User.findById(req.params.id);
+      const user = await User.findById(req.params.id)
+      .populate('following', 'username email profile_picture')
+      .populate('followers', 'username email profile_picture');
+
       if (!user) {
-        return res.status(404).json({ msg: 'User not found' });
+        return res.status(404).json({ message: 'User not found' });
       }
-      res.json(user);
+      res.json({
+        "user": {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          profile_picture: user.profile_picture,
+          followers: user.followers,
+          following: user.following,
+          posts: user.posts,
+        }
+      });
     } catch (err) {
       console.error(err.message);
-      res.status(500).send('Server Error');
+      res.status(400).send({"message":'An error occurred'});
     }
-  };
+};
 
-  exports.updateUser = async (req, res) => {
+exports.updateUser = async (req, res) => {
     try {
       const userId = req.params.id;
       const newUserData = req.body;
@@ -159,11 +174,11 @@ exports.getUser = async (req, res) => {
       // Send a response back to the client
       res.status(200).json({ message: 'User updated successfully',  "user": user, });
     } catch (error) {
-      res.status(500).json({ message: 'Server error', error });
+      res.status(400).json({ message: 'Server error', error });
     }
-  };
+};
 
-  exports.deleteUser = async (req, res) => {
+exports.deleteUser = async (req, res) => {
     try {
       const userId = req.params.id;
   
@@ -176,9 +191,9 @@ exports.getUser = async (req, res) => {
       // Send a response back to the client
       res.status(200).json({ message: 'User deleted successfully' });
     } catch (error) {
-      res.status(500).json({ message: 'Server error', error });
+      res.status(400).send({"message":'An error occurred'});
     }
-  };
+};
 
 exports.requestPasswordReset = async (req, res) => {
     const { email } = req.body;
@@ -223,11 +238,11 @@ exports.requestPasswordReset = async (req, res) => {
       });
     } catch (err) {
       console.error(err.message);
-      res.status(500).send('Server Error');
+      res.status(400).send('Server Error');
     }
-  };
+};
   
-  exports.resetPassword = async (req, res) => {
+ exports.resetPassword = async (req, res) => {
     const { token, newPassword } = req.body;
   
     try {
@@ -249,6 +264,66 @@ exports.requestPasswordReset = async (req, res) => {
       res.status(200).json({ message: 'Password reset successful' });
     } catch (err) {
       console.error(err.message);
-      res.status(500).send('Server Error');
+      res.status(400).send('Server Error');
     }
-  };
+};
+
+exports.followUser = async (req, res) => {
+  try {
+    const userToFollow = await User.findById(req.params.id);
+    const currentUser = await User.findById(req.user.user.id);
+
+    if (!userToFollow || !currentUser) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    if (currentUser.following.includes(userToFollow._id)) {
+      return res.status(400).json({ message: 'You are already following this user' });
+    }
+
+    // Add userToFollow to currentUser's following list
+    currentUser.following.push(userToFollow._id);
+    await currentUser.save();
+
+    // Add currentUser to userToFollow's followers list
+    userToFollow.followers.push(currentUser._id);
+    await userToFollow.save();
+
+    res.status(200).json({ message: 'Successfully followed user' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+exports.unfollowUser = async (req, res) => {
+  try {
+    const userToUnfollow = await User.findById(req.params.id);
+    const currentUser = await User.findById(req.user.user.id);
+
+    if (!userToUnfollow || !currentUser) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    if (!currentUser.following.includes(userToUnfollow._id)) {
+      return res.status(400).json({ message: 'You are not following this user' });
+    }
+
+    // Remove userToUnfollow from currentUser's following list
+    currentUser.following = currentUser.following.filter(
+      id => id.toString() !== userToUnfollow._id.toString()
+    );
+    await currentUser.save();
+
+    // Remove currentUser from userToUnfollow's followers list
+    userToUnfollow.followers = userToUnfollow.followers.filter(
+      id => id.toString() !== currentUser._id.toString()
+    );
+    await userToUnfollow.save();
+
+    res.status(200).json({ message: 'Successfully unfollowed user' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
