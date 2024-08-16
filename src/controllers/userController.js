@@ -65,11 +65,9 @@ exports.register = async (req, res) => {
         }
       );
     } catch (err) {
-      console.error(err.message);
       res.status(400).send({"message":'An error occurred'});
     }
 };
-
 
 exports.login = async (req, res) => {
 
@@ -121,7 +119,6 @@ exports.login = async (req, res) => {
       }
     );
   } catch (err) {
-    console.error(err);
     res.status(400).send({"message":'An error occurred'});
   }
 };
@@ -141,8 +138,16 @@ exports.getUser = async (req, res) => {
           username: user.username,
           email: user.email,
           profile_picture: user.profile_picture,
-          followers: user.followers,
-          following: user.following,
+          followers: user.followers.map(follower => ({
+            id: follower._id,
+            username: follower.username,
+            email: follower.email
+          })),
+          following: user.following.map(following => ({
+            id: following._id,
+            username: following.username,
+            email: following.email
+          })),
           posts: user.posts,
         }
       });
@@ -271,7 +276,7 @@ exports.requestPasswordReset = async (req, res) => {
 exports.followUser = async (req, res) => {
   try {
     const userToFollow = await User.findById(req.params.id);
-    const currentUser = await User.findById(req.user.user.id);
+    const currentUser = req.user;
 
     if (!userToFollow || !currentUser) {
       return res.status(404).json({ message: 'User not found' });
@@ -298,7 +303,6 @@ exports.followUser = async (req, res) => {
       }
      });
   } catch (error) {
-    console.error(error);
     res.status(400).json({ message: 'Server error' });
   }
 };
@@ -306,7 +310,7 @@ exports.followUser = async (req, res) => {
 exports.unfollowUser = async (req, res) => {
   try {
     const userToUnfollow = await User.findById(req.params.id);
-    const currentUser = await User.findById(req.user.user.id);
+    const currentUser = req.user;
 
     if (!userToUnfollow || !currentUser) {
       return res.status(404).json({ message: 'User not found' });
@@ -337,7 +341,6 @@ exports.unfollowUser = async (req, res) => {
       }
      });
   } catch (error) {
-    console.error(error);
     res.status(400).json({ message: 'Server error' });
   }
 };

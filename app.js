@@ -3,7 +3,6 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const userRoutes = require('./src/routes/userRoutes');
 const postRoutes = require('./src/routes/postRoutes');
-const auth = require('./src/middleware/auth');
 const connectDB = require('./config/db');
 
 
@@ -15,7 +14,7 @@ app.use(bodyParser.json());
 
 // Routes
 app.use('/api/users', userRoutes);
-app.use('/api/posts', auth, postRoutes);
+app.use('/api/posts', postRoutes);
 
 // Connect to MongoDB
 connectDB();
