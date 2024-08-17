@@ -10,7 +10,8 @@ const auth = async (req, res, next) => {
 
     const token = authHeader.replace('Bearer ', '');
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.user.id);
+    const user = await User.findById(decoded.user.id).populate('following', 'username email profile_picture')
+    .populate('followers', 'username email profile_picture');
 
     if (!user) {
       throw new Error();
