@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 const { validationResult } = require('express-validator');
+const bucket = require('../../config/firebaseConfig');
 
 
 
@@ -18,8 +19,7 @@ exports.register = async (req, res) => {
     try {
   
       // Check if user already exists
-      let user = await User.findOne({ email });
-      let name = await User.findOne({ username });
+      let user = await User.findOne({ $or: [{ email }, { username }] });
       if (user || name) {
         return res.status(400).json({ message: 'User already exists' });
       }
@@ -58,7 +58,16 @@ exports.register = async (req, res) => {
               username: user.username,
               email: user.email,
               profile_picture: user.profile_picture,
-              followers: user.followers,
+              followers: user.followers.map(follower => ({
+                id: follower._id,
+                username: follower.username,
+                email: follower.email
+              })),
+              following: user.following.map(following => ({
+                id: following._id,
+                username: following.username,
+                email: following.email
+              })),
               post: user.posts,
             },
             "token": token });
@@ -67,7 +76,7 @@ exports.register = async (req, res) => {
     } catch (err) {
       res.status(400).send({"message":'An error occurred'});
     }
-};
+}; 
 
 exports.login = async (req, res) => {
 
@@ -80,7 +89,8 @@ exports.login = async (req, res) => {
 
   try {
     // Check if user exists
-    let user = await User.findOne({ email });
+    let user = await User.findOne({ email }).populate('following', 'username email profile_picture').populate('followers', 'username email profile_picture');
+
     if (!user) {
       return res.status(400).json({ message: 'Incorrect Username Or Password' });
     }
@@ -111,8 +121,16 @@ exports.login = async (req, res) => {
             username: user.username,
             email: user.email,
             profile_picture: user.profile_picture,
-            followers: user.followers,
-            post: user.posts,
+            followers: user.followers.map(follower => ({
+              id: follower._id,
+              username: follower.username,
+              email: follower.email
+            })),
+            following: user.following.map(following => ({
+              id: following._id,
+              username: following.username,
+              email: following.email
+            })),
           },
           token: token 
         });
@@ -158,29 +176,79 @@ exports.getUser = async (req, res) => {
 };
 
 exports.updateUser = async (req, res) => {
-    try {
-      const userId = req.params.id;
-      const newUserData = req.body;
-  
-      // Find the user by ID and update the user data
-      const user = await User.findById(userId);
-      if (!user) {
-        return res.status(404).json({ message: 'User not found' });
-      }
-  
-      // Update user fields
-      Object.keys(newUserData).forEach(key => {
-        user[key] = newUserData[key];
-      });
-  
-      // Save the updated user data to the database
-      await user.save();
-  
-      // Send a response back to the client
-      res.status(200).json({ message: 'User updated successfully',  "user": user, });
-    } catch (error) {
-      res.status(400).json({ message: 'Server error', error });
+  try {
+    const newUserData = req.body;
+    const authenticatedUserId = req.user.id; 
+    const user = req.user;
+
+    if (user.id !== authenticatedUserId) {
+      return res.status(403).json({ message: 'You are not authorized to update this profile' });
     }
+
+
+    const file = req.file;
+
+    let downloadURL = user.image_url; 
+
+    if (file) {
+      const filePath = `users/${user.id}/${Date.now()}-${file.originalname}`;
+      const fileUpload = bucket.file(filePath);
+
+      const blobStream = fileUpload.createWriteStream({
+        metadata: {
+          contentType: file.mimetype
+        }
+      });
+
+      blobStream.on('error', (error) => {
+        console.error(error);
+        return res.status(500).json({ message: 'Server error', error });
+      });
+
+      await new Promise((resolve, reject) => {
+        blobStream.on('finish', () => {
+          downloadURL = `https://storage.googleapis.com/${bucket.name}/${fileUpload.name}`;
+          resolve();
+        });
+        blobStream.end(file.buffer);
+      });
+    }
+
+    // Update user fields
+    Object.keys(newUserData).forEach(key => {
+      user[key] = newUserData[key];
+    });
+
+    user.image_url = downloadURL;
+
+    await user.save();
+
+    
+    const response = {
+      message: 'User updated successfully',
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        profile_picture: user.image_url,
+        followers: user.followers.map(follower => ({
+          id: follower._id,
+          username: follower.username,
+          email: follower.email,
+        })),
+        following: user.following.map(following => ({
+          id: following._id,
+          username: following.username,
+          email: following.email,
+  
+        })),
+      }
+    };
+
+    res.status(200).json(response);
+  } catch (error) {
+    res.status(400).json({ message: 'Server error', error });
+  }
 };
 
 exports.deleteUser = async (req, res) => {
@@ -273,74 +341,59 @@ exports.requestPasswordReset = async (req, res) => {
     }
 };
 
-exports.followUser = async (req, res) => {
+exports.toggleFollowUser = async (req, res) => {
   try {
-    const userToFollow = await User.findById(req.params.id);
-    const currentUser = req.user;
 
-    if (!userToFollow || !currentUser) {
+    const targetUserId = req.params.id;
+
+    // Find both users
+    const user = req.user;
+    const targetUser = await User.findById(targetUserId);
+
+    if (user.id === targetUserId) {
+      return res.status(400).json({ message: 'You cannot follow yourself' });
+    }
+
+    if (!user || !targetUser) {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    if (currentUser.following.includes(userToFollow._id)) {
-      return res.status(400).json({ message: 'You are already following this user' });
+    const isFollowing = user.following.includes(targetUserId);
+
+    if (isFollowing) {
+      // Unfollow the user
+      user.following = user.following.filter(id => id.toString() !== targetUserId);
+      targetUser.followers = targetUser.followers.filter(id => id.toString() !== user.id);
+    } else {
+      // Follow the user
+      user.following.push(targetUserId);
+      targetUser.followers.push(user.id);
     }
 
-    // Add userToFollow to currentUser's following list
-    currentUser.following.push(userToFollow._id);
-    await currentUser.save();
+    await user.save();
+    await targetUser.save();
 
-    // Add currentUser to userToFollow's followers list
-    userToFollow.followers.push(currentUser._id);
-    await userToFollow.save();
+    const populatedUser = await User.findById(user.id).populate('following', 'username email profile_picture');
 
-    res.status(200).json({ message: 'Successfully followed user',
-      "user": {
-        id: userToFollow.id,
-        username: userToFollow.username,
-        email: userToFollow.email,
-        profile_picture: userToFollow.profile_picture,
+    const response = {
+      message: isFollowing ? 'User unfollowed successfully' : 'User followed successfully',
+      user: {
+        id:  populatedUser.id,
+        username: populatedUser.username,
+        email: populatedUser.email,
+        profile_picture: populatedUser.profile_picture,
+        following: populatedUser.following.map(follower => ({
+          id: follower._id,
+          username: follower.username,
+          email: follower.email
+        })),
       }
-     });
+    };
+
+    res.json(response);
   } catch (error) {
-    res.status(400).json({ message: 'Server error' });
+    console.error(error);
+    res.status(400).json({ message: 'Server error', error });
   }
 };
 
-exports.unfollowUser = async (req, res) => {
-  try {
-    const userToUnfollow = await User.findById(req.params.id);
-    const currentUser = req.user;
-
-    if (!userToUnfollow || !currentUser) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    if (!currentUser.following.includes(userToUnfollow._id)) {
-      return res.status(400).json({ message: 'You are not following this user' });
-    }
-
-    // Remove userToUnfollow from currentUser's following list
-    currentUser.following = currentUser.following.filter(
-      id => id.toString() !== userToUnfollow._id.toString()
-    );
-    await currentUser.save();
-
-    // Remove currentUser from userToUnfollow's followers list
-    userToUnfollow.followers = userToUnfollow.followers.filter(
-      id => id.toString() !== currentUser._id.toString()
-    );
-    await userToUnfollow.save();
-
-    res.status(200).json({ message: 'Successfully unfollowed user',
-      "user": {
-        id: userToUnfollow.id,
-        username: userToUnfollow.username,
-        email: userToUnfollow.email,
-        profile_picture: userToUnfollow.profile_picture,
-      }
-     });
-  } catch (error) {
-    res.status(400).json({ message: 'Server error' });
-  }
-};

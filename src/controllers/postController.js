@@ -2,49 +2,74 @@ const Post = require('../models/Post');
 const mongoose = require('mongoose');
 const User = require('../models/User');
 const Comment = require('../models/Comment');
+const bucket = require('../../config/firebaseConfig');
+
 
 exports.createPost = async (req, res) => {
   try {
     // Extract data from the request body
-    const { title, description,image_url } = req.body;
+    const { title, description } = req.body;
     const assignedToObjectId = mongoose.isValidObjectId(req.user.id) ? req.user.id : new mongoose.Types.ObjectId();
 
+    const file = req.file; 
 
-    // Create a new post instance
-    const newPost = new Post({
-      title,
-      description,
-      image_url,
-      assigned_to: assignedToObjectId,
-      createdAt: new Date(),
-    });
+    if (!file) {
+      return res.status(400).json({ message: 'Please attach a file' });
+    }
 
-    // Save the post to the database
-    const savedPost = await newPost.save();
+    const filePath = `posts/${assignedToObjectId}/${Date.now()}-${file.originalname}`;
+    const fileUpload = bucket.file(filePath);
 
-    const user = req.user
-  
-    // Send a response back to the client
-    res.status(201).json({
-      message: 'Post created successfully',
-      post: {
-        id: savedPost._id,
-        title: savedPost.title,
-        description: savedPost.description,
-        image_url: savedPost.image_url,
-        likes: savedPost.likes,
-        assigned_to: {
-          id:  user.id,
-          username: user.username,
-          email: user.email,
-          profile_picture: user.profile_picture,
-          followers: user.followers,
-        },
-        createdAt: savedPost.created_at,
-        comments: savedPost.comments,
+    const blobStream = fileUpload.createWriteStream({
+      metadata: {
+        contentType: file.mimetype
       }
     });
+
+    blobStream.on('error', (error) => {
+      console.error(error);
+      return res.status(500).json({ message: 'Server error', error });
+    });
+
+    blobStream.on('finish', async () => {
+      const downloadURL = `https://storage.googleapis.com/${bucket.name}/${fileUpload.name}`;
+
+      // Create a new post instance
+      const newPost = new Post({
+        title,
+        description,
+        image_url: downloadURL,
+        assigned_to: assignedToObjectId,
+      });
+
+      // Save the post to the database
+      const savedPost = await newPost.save();
+
+      const user = req.user;
+
+      // Send a response back to the client
+      res.status(200).json({
+        message: 'Post created successfully',
+        post: {
+          id: savedPost._id,
+          title: savedPost.title,
+          description: savedPost.description,
+          image_url: savedPost.image_url,
+          likes: savedPost.likes,
+          assigned_to: {
+            id: user.id,
+            username: user.username,
+            email: user.email,
+            profile_picture: user.profile_picture,
+          },
+          createdAt: savedPost.created_at,
+        }
+      });
+    });
+
+    blobStream.end(file.buffer);
   } catch (err) {
+    console.error(err);
     res.status(400).json({
       message: 'An error occurred while creating the post'
     });
@@ -91,30 +116,70 @@ exports.updatePost = async (req, res) => {
     const post = await Post.findById(postId); 
     const user = req.user;
 
-    if(!post){
-      return res.status(400).json({ message: 'This post does not' });
+    if (!post) {
+      return res.status(400).json({ message: 'This post does not exist' });
     }
 
-     // Check if the logged-in user is the creator of the post
-     if (post.assigned_to != user.id) {
+    // Check if the logged-in user is the creator of the post
+    if (post.assigned_to != user.id) {
       return res.status(403).json({ message: 'You are not authorized to update this post' });
     }
 
+    const file = req.file;
 
-    const updatedPost = await Post.findByIdAndUpdate(postId, req.body, { new: true }); 
+    let downloadURL = post.image_url; // Default to existing image_url
+
+    if (file) {
+      const filePath = `posts/${user.id}/${Date.now()}-${file.originalname}`;
+      const fileUpload = bucket.file(filePath);
+
+      const blobStream = fileUpload.createWriteStream({
+        metadata: {
+          contentType: file.mimetype
+        }
+      });
+
+      blobStream.on('error', (error) => {
+        console.error(error);
+        return res.status(500).json({ message: 'Server error', error });
+      });
+
+      await new Promise((resolve, reject) => {
+        blobStream.on('finish', () => {
+          downloadURL = `https://storage.googleapis.com/${bucket.name}/${fileUpload.name}`;
+          resolve();
+        });
+        blobStream.end(file.buffer);
+      });
+    }
+
+    const updatedPostData = {
+      ...req.body,
+      image_url: downloadURL
+    };
+
+    const updatedPost = await Post.findByIdAndUpdate(postId, updatedPostData, { new: true });
 
     if (!updatedPost) {
       return res.status(404).json({ message: 'Post not found' });
     }
+
     const responsePost = {
       id: updatedPost._id,
       title: updatedPost.title,
-      content: updatedPost.content,
-      assigned_to: updatedPost.assigned_to,
-      comments: updatedPost.comments,
+      description: updatedPost.description,
+      image_url: updatedPost.image_url,
       likes: updatedPost.likes,
       likedBy: updatedPost.likedBy,
+      assigned_to: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        profile_picture: user.profile_picture,
+        followers: user.followers,
+      },
     };
+
     res.json({ message: 'Post updated successfully', post: responsePost });
   } catch (error) {
     console.error(error);
