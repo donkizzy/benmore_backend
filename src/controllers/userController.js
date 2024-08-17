@@ -195,10 +195,13 @@ exports.updateUser = async (req, res) => {
     }
 
     // Update user fields
+    const allowedFields = ['username', 'email', 'profile_picture'];
     Object.keys(newUserData).forEach(key => {
-      user[key] = newUserData[key];
+      if (allowedFields.includes(key)) {
+        user[key] = newUserData[key];
+      }
     });
-
+    
     user.image_url = downloadURL;
 
     await user.save();
