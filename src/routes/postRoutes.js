@@ -12,5 +12,6 @@ router.delete('/:id', auth ,postController.deletePost);
 router.post('/comment', auth , postController.createComment);
 router.get('/:id/comment', auth , postController.getCommentsForPost);
 router.post('/:id/toggleLike',auth , postController.toggleLike); 
+router.get('/', auth, postController.getAllPosts);
 
 module.exports = router;

@@ -5,7 +5,7 @@ const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 const { validationResult } = require('express-validator');
 const bucket = require('../../config/firebaseConfig');
-
+const Post = require('../models/Post');
 
 
 exports.register = async (req, res) => {
@@ -20,7 +20,7 @@ exports.register = async (req, res) => {
   
       // Check if user already exists
       let user = await User.findOne({ $or: [{ email }, { username }] });
-      if (user || name) {
+      if (user) {
         return res.status(400).json({ message: 'User already exists' });
       }
   
@@ -58,17 +58,6 @@ exports.register = async (req, res) => {
               username: user.username,
               email: user.email,
               profile_picture: user.profile_picture,
-              followers: user.followers.map(follower => ({
-                id: follower._id,
-                username: follower.username,
-                email: follower.email
-              })),
-              following: user.following.map(following => ({
-                id: following._id,
-                username: following.username,
-                email: following.email
-              })),
-              post: user.posts,
             },
             "token": token });
         }
@@ -121,16 +110,6 @@ exports.login = async (req, res) => {
             username: user.username,
             email: user.email,
             profile_picture: user.profile_picture,
-            followers: user.followers.map(follower => ({
-              id: follower._id,
-              username: follower.username,
-              email: follower.email
-            })),
-            following: user.following.map(following => ({
-              id: following._id,
-              username: following.username,
-              email: following.email
-            })),
           },
           token: token 
         });
@@ -142,37 +121,36 @@ exports.login = async (req, res) => {
 };
 
 exports.getUser = async (req, res) => {
-    try {
-      const user = await User.findById(req.params.id)
+  try {
+    const userId = req.params.id;
+
+    const user = await User.findById(userId)
       .populate('following', 'username email profile_picture')
       .populate('followers', 'username email profile_picture');
 
-      if (!user) {
-        return res.status(404).json({ message: 'User not found' });
-      }
-      res.json({
-        "user": {
-          id: user.id,
-          username: user.username,
-          email: user.email,
-          profile_picture: user.profile_picture,
-          followers: user.followers.map(follower => ({
-            id: follower._id,
-            username: follower.username,
-            email: follower.email
-          })),
-          following: user.following.map(following => ({
-            id: following._id,
-            username: following.username,
-            email: following.email
-          })),
-          posts: user.posts,
-        }
-      });
-    } catch (err) {
-      console.error(err.message);
-      res.status(400).send({"message":'An error occurred'});
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
     }
+
+    const userPosts = await Post.find({ likedBy: userId });
+    const totalLikesGiven = userPosts.length;
+    
+
+    user.profileViews = (user.profileViews || 0) + 1;
+    await user.save();
+
+    res.json({
+      id: user._id,
+      username: user.username,
+      email: user.email,
+      profile_picture: user.profile_picture,
+      totalLikesGiven,
+      totalFollowers: user.followers.length,
+      profileViews: user.profileViews,
+    });
+  } catch (error) {
+    res.status(400).json({ message: 'An error occurred', error: error.message });
+  }
 };
 
 exports.updateUser = async (req, res) => {
@@ -191,7 +169,7 @@ exports.updateUser = async (req, res) => {
     let downloadURL = user.image_url; 
 
     if (file) {
-      const filePath = `users/${user.id}/${Date.now()}-${file.originalname}`;
+      const filePath = `users/{Date.now()}-${file.originalname}`;
       const fileUpload = bucket.file(filePath);
 
       const blobStream = fileUpload.createWriteStream({
@@ -201,13 +179,15 @@ exports.updateUser = async (req, res) => {
       });
 
       blobStream.on('error', (error) => {
-        console.error(error);
         return res.status(500).json({ message: 'Server error', error });
       });
 
       await new Promise((resolve, reject) => {
-        blobStream.on('finish', () => {
-          downloadURL = `https://storage.googleapis.com/${bucket.name}/${fileUpload.name}`;
+        blobStream.on('finish',async () => {
+
+          await fileUpload.makePublic();
+
+          downloadURL = fileUpload.publicUrl();
           resolve();
         });
         blobStream.end(file.buffer);
@@ -231,17 +211,6 @@ exports.updateUser = async (req, res) => {
         username: user.username,
         email: user.email,
         profile_picture: user.image_url,
-        followers: user.followers.map(follower => ({
-          id: follower._id,
-          username: follower.username,
-          email: follower.email,
-        })),
-        following: user.following.map(following => ({
-          id: following._id,
-          username: following.username,
-          email: following.email,
-  
-        })),
       }
     };
 
@@ -304,13 +273,11 @@ exports.requestPasswordReset = async (req, res) => {
   
       transporter.sendMail(mailOptions, (err, info) => {
         if (err) {
-          console.error('Error sending email:', err);
           return res.status(500).json({ message: 'Error sending email' });
         }
         res.status(200).json({ message: 'Password reset email sent' });
       });
     } catch (err) {
-      console.error(err.message);
       res.status(400).send('Server Error');
     }
 };
@@ -336,7 +303,6 @@ exports.requestPasswordReset = async (req, res) => {
   
       res.status(200).json({ message: 'Password reset successful' });
     } catch (err) {
-      console.error(err.message);
       res.status(400).send('Server Error');
     }
 };
@@ -392,7 +358,6 @@ exports.toggleFollowUser = async (req, res) => {
 
     res.json(response);
   } catch (error) {
-    console.error(error);
     res.status(400).json({ message: 'Server error', error });
   }
 };

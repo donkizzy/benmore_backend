@@ -8,6 +8,7 @@ const UserSchema = new mongoose.Schema({
   following: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   followers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   posts: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Post' }],
+  profileViews: { type: Number, default: 0 },
   resetPasswordToken: { type: String },
   resetPasswordExpiry: { type: Date }
 });

@@ -10,7 +10,7 @@ const PostSchema = new Schema({
   likes: { type: Number, default: 0 },
   likedBy: [{ type: Schema.Types.ObjectId, ref: 'User' }],
   status: { type: String, enum: ['In Progress', 'Completed', 'Overdue'], default: 'In Progress' },
-  assigned_to: { type: Schema.Types.ObjectId, ref: 'User' }
+  assigned_to: { type: Schema.Types.ObjectId, ref: 'User' },
 });
 
 module.exports = mongoose.model('Post', PostSchema);

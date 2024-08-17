@@ -4,12 +4,10 @@ const User = require('../models/User');
 const Comment = require('../models/Comment');
 const bucket = require('../../config/firebaseConfig');
 
-
 exports.createPost = async (req, res) => {
   try {
     // Extract data from the request body
     const { title, description } = req.body;
-    const assignedToObjectId = mongoose.isValidObjectId(req.user.id) ? req.user.id : new mongoose.Types.ObjectId();
 
     const file = req.file; 
 
@@ -17,7 +15,7 @@ exports.createPost = async (req, res) => {
       return res.status(400).json({ message: 'Please attach a file' });
     }
 
-    const filePath = `posts/${assignedToObjectId}/${Date.now()}-${file.originalname}`;
+    const filePath = `posts/${Date.now()}-${file.originalname}`;
     const fileUpload = bucket.file(filePath);
 
     const blobStream = fileUpload.createWriteStream({
@@ -32,14 +30,15 @@ exports.createPost = async (req, res) => {
     });
 
     blobStream.on('finish', async () => {
-      const downloadURL = `https://storage.googleapis.com/${bucket.name}/${fileUpload.name}`;
 
-      // Create a new post instance
+      await fileUpload.makePublic();
+
+
       const newPost = new Post({
         title,
         description,
-        image_url: downloadURL,
-        assigned_to: assignedToObjectId,
+        image_url: fileUpload.publicUrl(),
+        assigned_to: req.user,
       });
 
       // Save the post to the database
@@ -75,7 +74,6 @@ exports.createPost = async (req, res) => {
     });
   }
 };
-
 exports.getPost = async (req, res) => {
   try {
       const postId = req.params.id; 
@@ -120,17 +118,15 @@ exports.updatePost = async (req, res) => {
       return res.status(400).json({ message: 'This post does not exist' });
     }
 
-    // Check if the logged-in user is the creator of the post
     if (post.assigned_to != user.id) {
       return res.status(403).json({ message: 'You are not authorized to update this post' });
     }
 
     const file = req.file;
 
-    let downloadURL = post.image_url; // Default to existing image_url
-
+    let downloadURL = post.image_url; 
     if (file) {
-      const filePath = `posts/${user.id}/${Date.now()}-${file.originalname}`;
+      const filePath = `posts/${Date.now()}-${file.originalname}`;
       const fileUpload = bucket.file(filePath);
 
       const blobStream = fileUpload.createWriteStream({
@@ -145,8 +141,12 @@ exports.updatePost = async (req, res) => {
       });
 
       await new Promise((resolve, reject) => {
-        blobStream.on('finish', () => {
-          downloadURL = `https://storage.googleapis.com/${bucket.name}/${fileUpload.name}`;
+        
+        blobStream.on('finish',async () => {
+
+          await fileUpload.makePublic();
+
+          downloadURL = fileUpload.publicUrl();
           resolve();
         });
         blobStream.end(file.buffer);
@@ -243,7 +243,8 @@ exports.createComment = async (req, res) => {
 
     const newComment = new Comment({
       comment,
-      user: userId
+      user: userId,
+      postId: postId
     });
 
     const savedComment = await newComment.save();
@@ -275,23 +276,86 @@ exports.createComment = async (req, res) => {
 exports.getCommentsForPost = async (req, res) => {
   try {
     const postId = req.params.id;
-    const post = await Post.findById(postId).populate('comments');
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const post = await Post.findById(postId);
 
     if (!post) {
       return res.status(404).json({ message: 'Post not found' });
     }
 
-    const comments = post.comments.map(comment => ({
+    const comments = await Comment.find({ postId: postId })
+      .skip(skip)
+      .limit(limit)
+      .populate('user', 'username email profile_picture') 
+      .exec();
+
+    const totalComments = await Comment.countDocuments({ postId: postId });
+
+    const formattedComments = comments.map(comment => ({
       id: comment._id,
-      user: comment.user,
+      user: {
+        id: comment.user.id,
+        email: comment.user.email,
+        profile_picture: comment.user.profile_picture,
+        username: comment.user.profile_picture,
+        
+      },
       comment: comment.comment,
       likes: comment.likes,
       likedBy: comment.likedBy,
-      timestamp: comment.timestamp
+      createdAt: comment.timestamp
     }));
 
-    res.json(comments);
+    res.json({
+      page,
+      limit,
+      totalComments,
+      comments: formattedComments
+    });
   } catch (error) {
-    res.status(400).json({ message: error });
+    res.status(400).json({ message: error.message });
+  }
+};
+
+exports.getAllPosts = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const posts = await Post.find()
+      .skip(skip)
+      .limit(limit)
+      .populate('assigned_to', 'username email profile_picture')
+      .exec();
+
+    const totalPosts = await Post.countDocuments();
+
+    const formattedPosts = posts.map(post => ({
+      id: post._id,
+      title: post.title,
+      description: post.description,
+      image_url: post.image_url,
+      likes: post.likes,
+      assigned_to: post.assigned_to ? {
+        id: post.assigned_to._id,
+        username: post.assigned_to.username,
+        email: post.assigned_to.email,
+        profile_picture: post.assigned_to.profile_picture,
+      } : null,
+      createdAt: post.created_at,
+    }));
+
+    res.json({
+      page,
+      limit,
+      totalPosts,
+      posts: formattedPosts
+    });
+  } catch (error) {
+    res.status(400).json({ message: 'An error occurred', error: error.message });
   }
 };
