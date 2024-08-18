@@ -8,6 +8,31 @@ const bucket = require('../../config/firebaseConfig');
 const Post = require('../models/Post');
 
 
+/**
+ * @swagger
+ * /users/register:
+ *   post:
+ *     summary: Register a new user
+ *     tags: [Users]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               username:
+ *                 type: string
+ *               email:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: User registered successfully
+ *       400:
+ *         description: Bad request
+ */
 exports.register = async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -18,18 +43,18 @@ exports.register = async (req, res) => {
 
     try {
   
-      // Check if user already exists
       let user = await User.findOne({ $or: [{ email }, { username }] });
       if (user) {
         return res.status(400).json({ message: 'User already exists' });
       }
   
-      // Create a new user instance
       user = new User({
         username,
         email,
         password
       });
+      
+      user.profile_picture = "";
   
       // Hash the password
       const salt = await bcrypt.genSalt(10);
@@ -56,7 +81,7 @@ exports.register = async (req, res) => {
             "user":  {
               id: user.id,
               username: user.username,
-              email: user.email,
+              email: user.email, 
               profile_picture: user.profile_picture,
             },
             "token": token });
@@ -67,6 +92,29 @@ exports.register = async (req, res) => {
     }
 }; 
 
+/**
+ * @swagger
+ * /users/login:
+ *   post:
+ *     summary: Login a user
+ *     tags: [Users]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               email:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Login successful
+ *       400:
+ *         description: Incorrect Username Or Password
+ */
 exports.login = async (req, res) => {
 
    const errors = validationResult(req);
@@ -78,8 +126,7 @@ exports.login = async (req, res) => {
 
   try {
     // Check if user exists
-    let user = await User.findOne({ email }).populate('following', 'username email profile_picture').populate('followers', 'username email profile_picture');
-
+    let user = await User.findOne({ email });
     if (!user) {
       return res.status(400).json({ message: 'Incorrect Username Or Password' });
     }
@@ -120,13 +167,33 @@ exports.login = async (req, res) => {
   }
 };
 
+
+/**
+ * @swagger
+ * /users/{id}:
+ *   get:
+ *     summary: Get a user by ID
+ *     tags: [Users]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: The user ID
+ *     responses:
+ *       200:
+ *         description: User retrieved successfully
+ *       404:
+ *         description: User not found
+ *       400:
+ *         description: Bad request
+ */
 exports.getUser = async (req, res) => {
   try {
     const userId = req.params.id;
 
-    const user = await User.findById(userId)
-      .populate('following', 'username email profile_picture')
-      .populate('followers', 'username email profile_picture');
+    const user = await User.findById(userId);
 
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
@@ -138,7 +205,6 @@ exports.getUser = async (req, res) => {
 
     user.profileViews = (user.profileViews || 0) + 1;
     await user.save();
-
     res.json({
       id: user._id,
       username: user.username,
@@ -153,13 +219,41 @@ exports.getUser = async (req, res) => {
   }
 };
 
+
+/**
+ * @swagger
+ * /users/update:
+ *   put:
+ *     summary: Update user details
+ *     tags: [Users]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               username:
+ *                 type: string
+ *               email:
+ *                 type: string
+ *               profile_picture:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: User updated successfully
+ *       400:
+ *         description: Bad request
+ *       403:
+ *         description: Not authorized to update this profile
+ */
 exports.updateUser = async (req, res) => {
   try {
     const newUserData = req.body;
     const authenticatedUserId = req.user.id; 
     const user = req.user;
 
-    if (user.id !== authenticatedUserId) {
+    if (user._id.toString() !== authenticatedUserId) {
       return res.status(403).json({ message: 'You are not authorized to update this profile' });
     }
 
@@ -169,7 +263,7 @@ exports.updateUser = async (req, res) => {
     let downloadURL = user.image_url; 
 
     if (file) {
-      const filePath = `users/{Date.now()}-${file.originalname}`;
+      const filePath = `users/${Date.now()}-${file.originalname}`;
       const fileUpload = bucket.file(filePath);
 
       const blobStream = fileUpload.createWriteStream({
@@ -202,7 +296,7 @@ exports.updateUser = async (req, res) => {
       }
     });
     
-    user.image_url = downloadURL;
+    user.profile_picture = downloadURL;
 
     await user.save();
 
@@ -223,6 +317,28 @@ exports.updateUser = async (req, res) => {
   }
 };
 
+
+/**
+ * @swagger
+ * /users/{id}:
+ *   delete:
+ *     summary: Delete a user by ID
+ *     tags: [Users]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: The user ID
+ *     responses:
+ *       200:
+ *         description: User deleted successfully
+ *       404:
+ *         description: User not found
+ *       400:
+ *         description: Bad request
+ */
 exports.deleteUser = async (req, res) => {
     try {
       const userId = req.params.id;
@@ -240,6 +356,29 @@ exports.deleteUser = async (req, res) => {
     }
 };
 
+/**
+ * @swagger
+ * /users/requestPasswordReset:
+ *   post:
+ *     summary: Request a password reset
+ *     tags: [Users]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               email:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Password reset email sent
+ *       400:
+ *         description: User not found
+ *       500:
+ *         description: Error sending email
+ */
 exports.requestPasswordReset = async (req, res) => {
     const { email } = req.body;
   
@@ -276,7 +415,7 @@ exports.requestPasswordReset = async (req, res) => {
   
       transporter.sendMail(mailOptions, (err, info) => {
         if (err) {
-          return res.status(500).json({ message: 'Error sending email' });
+          return res.status(500).json({ message: 'Error sending email', error: err });
         }
         res.status(200).json({ message: 'Password reset email sent' });
       });
@@ -284,6 +423,33 @@ exports.requestPasswordReset = async (req, res) => {
       res.status(400).send('Server Error');
     }
 };
+
+
+/**
+ * @swagger
+ * /users/resetPassword:
+ *   post:
+ *     summary: Reset user password
+ *     tags: [Users]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               token:
+ *                 type: string
+ *               newPassword:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Password reset successful
+ *       400:
+ *         description: Invalid or expired token
+ *       500:
+ *         description: Server error
+ */
   
  exports.resetPassword = async (req, res) => {
     const { token, newPassword } = req.body;
@@ -306,16 +472,37 @@ exports.requestPasswordReset = async (req, res) => {
   
       res.status(200).json({ message: 'Password reset successful' });
     } catch (err) {
-      res.status(400).send('Server Error');
+      res.status(400).send({message: 'Server Error'});
     }
 };
 
+
+/**
+ * @swagger
+ * /users/{id}/toggleFollow:
+ *   post:
+ *     summary: Toggle follow/unfollow a user
+ *     tags: [Users]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: The target user ID
+ *     responses:
+ *       200:
+ *         description: User followed/unfollowed successfully
+ *       400:
+ *         description: You cannot follow yourself or Bad request
+ *       404:
+ *         description: User not found
+ *       500:
+ *         description: Server error
+ */
 exports.toggleFollowUser = async (req, res) => {
   try {
-
     const targetUserId = req.params.id;
-
-    // Find both users
     const user = req.user;
     const targetUser = await User.findById(targetUserId);
 
@@ -327,35 +514,29 @@ exports.toggleFollowUser = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    const isFollowing = user.following.includes(targetUserId);
+    const followingIds = user.following.map(followingUser => followingUser._id.toString());
+    const isFollowing = followingIds.includes(targetUserId);
 
     if (isFollowing) {
       // Unfollow the user
-      user.following = user.following.filter(id => id.toString() !== targetUserId);
-      targetUser.followers = targetUser.followers.filter(id => id.toString() !== user.id);
+      user.following = user.following.filter(followingUser => followingUser._id.toString() !== targetUserId);
+      targetUser.followers = targetUser.followers.filter(follower => follower.toString() !== user.id);
     } else {
       // Follow the user
-      user.following.push(targetUserId);
+      user.following.push({ _id: targetUserId });
       targetUser.followers.push(user.id);
     }
 
     await user.save();
     await targetUser.save();
 
-    const populatedUser = await User.findById(user.id).populate('following', 'username email profile_picture');
-
     const response = {
       message: isFollowing ? 'User unfollowed successfully' : 'User followed successfully',
       user: {
-        id:  populatedUser.id,
-        username: populatedUser.username,
-        email: populatedUser.email,
-        profile_picture: populatedUser.profile_picture,
-        following: populatedUser.following.map(follower => ({
-          id: follower._id,
-          username: follower.username,
-          email: follower.email
-        })),
+        id: targetUser.id,
+        username: targetUser.username,
+        email: targetUser.email,
+        profile_picture: targetUser.profile_picture,
       }
     };
 
@@ -364,4 +545,3 @@ exports.toggleFollowUser = async (req, res) => {
     res.status(400).json({ message: 'Server error', error });
   }
 };
-

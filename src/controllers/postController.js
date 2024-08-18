@@ -4,12 +4,38 @@ const User = require('../models/User');
 const Comment = require('../models/Comment');
 const bucket = require('../../config/firebaseConfig');
 
+/**
+ * @swagger
+ * /posts:
+ *   post:
+ *     summary: Create a new post
+ *     tags: [Posts]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               title:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: Post created successfully
+ *       400:
+ *         description: Bad request
+ *       500:
+ *         description: Server error
+ */
 exports.createPost = async (req, res) => {
   try {
-    // Extract data from the request body
     const { title, description } = req.body;
-
-    const file = req.file; 
+    const file = req.file;
 
     if (!file) {
       return res.status(400).json({ message: 'Please attach a file' });
@@ -33,18 +59,15 @@ exports.createPost = async (req, res) => {
 
       await fileUpload.makePublic();
 
-
       const newPost = new Post({
         title,
         description,
         image_url: fileUpload.publicUrl(),
-        assigned_to: req.user,
+        assigned_to: req.user.id,
       });
 
       // Save the post to the database
       const savedPost = await newPost.save();
-
-      const user = req.user;
 
       // Send a response back to the client
       res.status(200).json({
@@ -55,13 +78,8 @@ exports.createPost = async (req, res) => {
           description: savedPost.description,
           image_url: savedPost.image_url,
           likes: savedPost.likes,
-          assigned_to: {
-            id: user.id,
-            username: user.username,
-            email: user.email,
-            profile_picture: user.profile_picture,
-          },
-          createdAt: savedPost.created_at,
+          created_at: savedPost.created_at,
+          assigned_to: req.user.id,
         }
       });
     });
@@ -74,6 +92,28 @@ exports.createPost = async (req, res) => {
     });
   }
 };
+
+/**
+ * @swagger
+ * /posts/{id}:
+ *   get:
+ *     summary: Get a post by ID
+ *     tags: [Posts]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: The post ID
+ *     responses:
+ *       200:
+ *         description: Post retrieved successfully
+ *       404:
+ *         description: Post not found
+ *       400:
+ *         description: Bad request
+ */
 exports.getPost = async (req, res) => {
   try {
       const postId = req.params.id; 
@@ -81,9 +121,9 @@ exports.getPost = async (req, res) => {
       const user = req.user
 
       if (!post) {
-          return res.status(404).json({ message: 'Post not found' });
+        return res.status(404).json({ message: 'Post not found' });
       }
-
+      
       res.status(200).json({
         message: 'Post retrieved successfully',
         post: {
@@ -102,32 +142,76 @@ exports.getPost = async (req, res) => {
           createdAt: post.created_at,
           comments: post.comments,
         }
-      }); // Send the post data as a response
+      }); 
   } catch (error) {
       res.status(400).json({ message: 'An error occurred', error: error.message });
   }
 };
 
+/**
+ * @swagger
+ * /posts/{id}:
+ *   put:
+ *     summary: Update a post by ID
+ *     tags: [Posts]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: The post ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               title:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: Post updated successfully
+ *       400:
+ *         description: Bad request
+ *       403:
+ *         description: Unauthorized
+ *       404:
+ *         description: Post not found
+ *       500:
+ *         description: Server error
+ */
 exports.updatePost = async (req, res) => {
   try {
     const postId = req.params.id; 
     const post = await Post.findById(postId); 
-    const user = req.user;
+    let downloadURL = post.image_url; 
+    const file = req.file;
 
     if (!post) {
       return res.status(400).json({ message: 'This post does not exist' });
     }
 
-    if (post.assigned_to != user.id) {
+  console.log(post);
+    if (post.assigned_to.id !== user.id) {
       return res.status(403).json({ message: 'You are not authorized to update this post' });
     }
+    
+    if (!file) {
+      return res.status(400).json({ message: 'Please attach a file' });
+    }
 
-    const file = req.file;
-
-    let downloadURL = post.image_url; 
+    
     if (file) {
       const filePath = `posts/${Date.now()}-${file.originalname}`;
       const fileUpload = bucket.file(filePath);
+      var user = req.user;
 
       const blobStream = fileUpload.createWriteStream({
         metadata: {
@@ -171,29 +255,45 @@ exports.updatePost = async (req, res) => {
       image_url: updatedPost.image_url,
       likes: updatedPost.likes,
       likedBy: updatedPost.likedBy,
-      assigned_to: {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        profile_picture: user.profile_picture,
-        followers: user.followers,
-      },
+      assigned_to: user.id,
     };
 
     res.json({ message: 'Post updated successfully', post: responsePost });
   } catch (error) {
     console.error(error);
     res.status(400).json({ message: 'An error occurred', error: error.message });
-  }
-};
+}};
 
+/**
+ * @swagger
+ * /posts/{id}:
+ *   delete:
+ *     summary: Delete a post by ID
+ *     tags: [Posts]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: The post ID
+ *     responses:
+ *       200:
+ *         description: Post deleted successfully
+ *       403:
+ *         description: Unauthorized
+ *       404:
+ *         description: Post not found
+ *       400:
+ *         description: Bad request
+ */
 exports.deletePost = async (req, res) => {
   try {
     const postId = req.params.id; 
     const post = await Post.findById(postId); 
 
      // Check if the logged-in user is the creator of the post
-     if (post.assigned_to != req.user.id) {
+     if (post.assigned_to.id != req.user.id) {
       return res.status(403).json({ message: 'You are not authorized to delete this post' });
     }
 
@@ -208,6 +308,27 @@ exports.deletePost = async (req, res) => {
   }
 };
 
+/**
+ * @swagger
+ * /posts/{id}/like:
+ *   post:
+ *     summary: Toggle like on a post
+ *     tags: [Posts]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: The post ID
+ *     responses:
+ *       200:
+ *         description: Post has been liked/unliked successfully
+ *       404:
+ *         description: Post not found
+ *       500:
+ *         description: Server error
+ */
 exports.toggleLike = async (req, res) => {
   try {
     const post = await Post.findById(req.params.id);
@@ -236,6 +357,31 @@ exports.toggleLike = async (req, res) => {
   }
 };
 
+/**
+ * @swagger
+ * /posts/{id}/comments:
+ *   post:
+ *     summary: Add a comment to a post
+ *     tags: [Comments]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               postId:
+ *                 type: string
+ *               comment:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Comment added successfully
+ *       404:
+ *         description: Post not found
+ *       500:
+ *         description: Server error
+ */
 exports.createComment = async (req, res) => {
   try {
     const { postId, comment } = req.body;
@@ -273,6 +419,37 @@ exports.createComment = async (req, res) => {
   }
 };
 
+/**
+ * @swagger
+ * /posts/{id}/comments:
+ *   get:
+ *     summary: Get comments for a post
+ *     tags: [Comments]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: The post ID
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         description: Page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         description: Number of comments per page
+ *     responses:
+ *       200:
+ *         description: Comments retrieved successfully
+ *       404:
+ *         description: Post not found
+ *       400:
+ *         description: Bad request
+ */
 exports.getCommentsForPost = async (req, res) => {
   try {
     const postId = req.params.id;
@@ -300,13 +477,13 @@ exports.getCommentsForPost = async (req, res) => {
         id: comment.user.id,
         email: comment.user.email,
         profile_picture: comment.user.profile_picture,
-        username: comment.user.profile_picture,
+        username: comment.user.username,
         
       },
       comment: comment.comment,
       likes: comment.likes,
       likedBy: comment.likedBy,
-      createdAt: comment.timestamp
+      created_at: comment.timestamp
     }));
 
     res.json({
@@ -320,19 +497,54 @@ exports.getCommentsForPost = async (req, res) => {
   }
 };
 
+/**
+ * @swagger
+ * /posts:
+ *   get:
+ *     summary: Get all posts
+ *     tags: [Posts]
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         description: Page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         description: Number of posts per page
+ *       - in: query
+ *         name: userId
+ *         schema:
+ *           type: string
+ *         description: User ID to filter posts
+ *     responses:
+ *       200:
+ *         description: Posts retrieved successfully
+ *       400:
+ *         description: Bad request
+ */
 exports.getAllPosts = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
+    const userId = req.query.userId;
 
-    const posts = await Post.find()
+    let query = {};
+    if (userId) {
+      query = { 'assigned_to.id': new mongoose.Types.ObjectId(String(userId)) };
+    
+    }
+
+    const posts = await Post.find(query)
       .skip(skip)
       .limit(limit)
       .populate('assigned_to', 'username email profile_picture')
       .exec();
 
-    const totalPosts = await Post.countDocuments();
+    const totalPosts = await Post.countDocuments(query);
 
     const formattedPosts = posts.map(post => ({
       id: post._id,
@@ -345,8 +557,8 @@ exports.getAllPosts = async (req, res) => {
         username: post.assigned_to.username,
         email: post.assigned_to.email,
         profile_picture: post.assigned_to.profile_picture,
-      } : null,
-      createdAt: post.created_at,
+      } : {},
+      created_at: post.created_at,
     }));
 
     res.json({
@@ -355,7 +567,9 @@ exports.getAllPosts = async (req, res) => {
       totalPosts,
       posts: formattedPosts
     });
+
   } catch (error) {
-    res.status(400).json({ message: 'An error occurred', error: error.message });
+    console.error(error);
+    res.status(400).json({ message: error.message });
   }
 };

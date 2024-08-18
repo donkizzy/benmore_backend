@@ -4,10 +4,13 @@ const bodyParser = require('body-parser');
 const userRoutes = require('./src/routes/userRoutes');
 const postRoutes = require('./src/routes/postRoutes');
 const connectDB = require('./config/db');
+const swaggerSpec = require('./config/swaggerConfig');
+const swaggerUi = require('swagger-ui-express');
 
 
 const app = express();
 
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Middleware
 app.use(bodyParser.json());
