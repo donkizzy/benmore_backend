@@ -202,7 +202,7 @@ exports.updatePost = async (req, res) => {
     var user = req.user;
 
     if (!post) {
-      return res.status(400).json({ message: "This post does not exist" });
+      return res.status(404).json({ message: "This post does not exist" });
     }
 
     if (post.assigned_to.toString() !== user.id) {
@@ -305,7 +305,6 @@ exports.deletePost = async (req, res) => {
     const postId = req.params.id;
     const post = await Post.findById(postId);
 
-    // Check if the logged-in user is the creator of the post
     if (post.assigned_to.id != req.user.id) {
       return res
         .status(403)

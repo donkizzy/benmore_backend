@@ -16,7 +16,7 @@ const connectDB = async () => {
     await mongoose.connect(mongoURL);
     console.log(
       `🛡  ${
-        process.env.NODE_ENV === "test" ? "Test " : ""
+        process.env.NODE_ENV === "test" ? "Test " : "Production "
       }MongoDB connected successfully 🛡`
     );
   } catch (err) {

@@ -314,6 +314,7 @@ exports.updateUser = async (req, res) => {
 
     res.status(200).json(response);
   } catch (error) {
+    console.log(error);
     res.status(400).json({ message: "Server error", error });
   }
 };
@@ -453,9 +454,8 @@ exports.requestPasswordReset = async (req, res) => {
  */
 
 exports.resetPassword = async (req, res) => {
-  const { token, newPassword } = req.body;
-
   try {
+    const { token, newPassword } = req.body;
     const user = await User.findOne({
       resetPasswordToken: token,
       resetPasswordExpiry: { $gt: Date.now() },
@@ -465,15 +465,17 @@ exports.resetPassword = async (req, res) => {
       return res.status(400).json({ message: "Invalid or expired token" });
     }
 
-    const salt = await bcrypt.genSalt(10);
-    user.password = await bcrypt.hash(newPassword, salt);
+    user.password = newPassword;
     user.resetPasswordToken = undefined;
     user.resetPasswordExpiry = undefined;
+
     await user.save();
 
-    res.status(200).json({ message: "Password reset successful" });
-  } catch (err) {
-    res.status(400).send({ message: "Server Error" });
+    res.status(200).json({ message: "Password reset successfully" });
+  } catch (error) {
+    res
+      .status(400)
+      .json({ message: "An error occurred", error: error.message });
   }
 };
 
