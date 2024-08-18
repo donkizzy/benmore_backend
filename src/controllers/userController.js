@@ -50,6 +50,7 @@ exports.register = async (req, res) => {
       username,
       email,
       password,
+      profile_picture: "https://picsum.photos/1024/1024",
     });
 
     // Set default profile_picture as "" in model
