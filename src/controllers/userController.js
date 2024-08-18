@@ -207,6 +207,9 @@ exports.getUser = async (req, res) => {
 
     user.profileViews = (user.profileViews || 0) + 1;
     await user.save();
+
+    const isFollowing = user.followers.includes(req.user.id);
+
     res.json({
       id: user._id,
       username: user.username,
@@ -215,6 +218,7 @@ exports.getUser = async (req, res) => {
       totalLikesGiven,
       totalFollowers: user.followers.length,
       profileViews: user.profileViews,
+      isFollowing,
     });
   } catch (error) {
     res
