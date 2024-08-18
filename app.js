@@ -1,26 +1,16 @@
-require('dotenv').config();
-const express = require('express');
-const bodyParser = require('body-parser');
-const userRoutes = require('./src/routes/userRoutes');
-const postRoutes = require('./src/routes/postRoutes');
-const connectDB = require('./config/db');
-const swaggerSpec = require('./config/swaggerConfig');
-const swaggerUi = require('swagger-ui-express');
-
+require("dotenv").config();
+const express = require("express");
+const index = require("./src/routes/index");
+const swaggerSpec = require("./config/swaggerConfig");
+const swaggerUi = require("swagger-ui-express");
 
 const app = express();
 
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Middleware
-app.use(bodyParser.json());
+app.use(express.json());
 
-// Routes
-app.use('/api/users', userRoutes);
-app.use('/api/posts', postRoutes);
+app.use("/api", index);
 
-// Connect to MongoDB
-connectDB();
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+module.exports = app;
